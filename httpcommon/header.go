@@ -88,6 +88,10 @@ func SortedKeyValues(h http.Header, exclude map[string]bool) (kvs []HeaderKeyVal
 	}
 
 	hs.kvs = kvs
+	// Clear any order left over from a previous SortedKeyValuesBy call on a
+	// sorter that was returned to the pool; otherwise a default-order request
+	// would inherit a stale custom order and sort non-lexicographically.
+	hs.order = nil
 	sort.Sort(hs)
 
 	return kvs, hs
