@@ -10,11 +10,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/quic-go/quic-go"
 	"github.com/enetx/http3/qlog"
+	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/qlogwriter"
 	"github.com/quic-go/quic-go/quicvarint"
-
 )
 
 const maxQuarterStreamID = 1<<60 - 1
@@ -86,32 +85,32 @@ func (c *rawConn) openControlStream(settings *settingsFrame) (*quic.SendStream, 
 	str, err := c.conn.OpenUniStream()
 	if err != nil {
 		return nil, err
-}
+	}
 	b := make([]byte, 0, 64)
 	b = quicvarint.Append(b, streamTypeControlStream)
 	b = settings.Append(b)
 	if c.qlogger != nil {
 		sf := qlog.SettingsFrame{
 			MaxFieldSectionSize: settings.MaxFieldSectionSize,
-			Other:               settings.Other.Map().Std(),
-	}
+			Other:               settings.Other.Iter().Collect().Map[uint64, uint64](),
+		}
 		if settings.Datagram {
 			sf.Datagram = pointer(true)
 		}
 		if settings.ExtendedConnect {
 			sf.ExtendedConnect = pointer(true)
-	}
+		}
 		c.qlogger.RecordEvent(qlog.FrameCreated{
 			StreamID: str.StreamID(),
 			Raw:      qlog.RawInfo{Length: len(b)},
 			Frame:    qlog.Frame{Frame: sf},
 		})
-}
+	}
 	if _, err := str.Write(b); err != nil {
 		return nil, err
 	}
 	return str, nil
-	}
+}
 
 func (c *rawConn) TrackStream(str *quic.Stream) *stateTrackingStream {
 	hstr := newStateTrackingStream(str, c, func(b []byte) error { return c.sendDatagram(str.StreamID(), b) })
@@ -125,7 +124,7 @@ func (c *rawConn) TrackStream(str *quic.Stream) *stateTrackingStream {
 
 func (c *rawConn) RemoteAddr() net.Addr {
 	return c.conn.RemoteAddr()
-	}
+}
 
 func (c *rawConn) ConnectionState() quic.ConnectionState {
 	return c.conn.ConnectionState()
@@ -138,7 +137,7 @@ func (c *rawConn) clearStream(id quic.StreamID) {
 	if _, ok := c.streams[id]; ok {
 		delete(c.streams, id)
 		c.qloggerWG.Done()
-		}
+	}
 	if len(c.streams) == 0 {
 		c.onStreamsEmpty()
 	}
@@ -149,7 +148,7 @@ func (c *rawConn) hasActiveStreams() bool {
 	defer c.streamMx.Unlock()
 
 	return len(c.streams) > 0
-	}
+}
 
 func (c *rawConn) CloseWithError(code quic.ApplicationErrorCode, msg string) error {
 	return c.conn.CloseWithError(code, msg)
@@ -159,47 +158,47 @@ func (c *rawConn) handleUnidirectionalStream(str *quic.ReceiveStream, isServer b
 	c.qloggerWG.Add(1)
 	defer c.qloggerWG.Done()
 
-			streamType, err := quicvarint.Read(quicvarint.NewReader(str))
-			if err != nil {
-				if c.logger != nil {
-					c.logger.Debug("reading stream type on stream failed", "stream ID", str.StreamID(), "error", err)
-				}
-				return
-			}
-			// We're only interested in the control stream here.
-			switch streamType {
-			case streamTypeControlStream:
-			case streamTypeQPACKEncoderStream:
+	streamType, err := quicvarint.Read(quicvarint.NewReader(str))
+	if err != nil {
+		if c.logger != nil {
+			c.logger.Debug("reading stream type on stream failed", "stream ID", str.StreamID(), "error", err)
+		}
+		return
+	}
+	// We're only interested in the control stream here.
+	switch streamType {
+	case streamTypeControlStream:
+	case streamTypeQPACKEncoderStream:
 		if isFirst := c.rcvdQPACKEncoderStr.CompareAndSwap(false, true); !isFirst {
-					c.CloseWithError(quic.ApplicationErrorCode(ErrCodeStreamCreationError), "duplicate QPACK encoder stream")
-				}
-				// Our QPACK implementation doesn't use the dynamic table yet.
-				return
-			case streamTypeQPACKDecoderStream:
+			c.CloseWithError(quic.ApplicationErrorCode(ErrCodeStreamCreationError), "duplicate QPACK encoder stream")
+		}
+		// Our QPACK implementation doesn't use the dynamic table yet.
+		return
+	case streamTypeQPACKDecoderStream:
 		if isFirst := c.rcvdQPACKDecoderStr.CompareAndSwap(false, true); !isFirst {
-					c.CloseWithError(quic.ApplicationErrorCode(ErrCodeStreamCreationError), "duplicate QPACK decoder stream")
-				}
-				// Our QPACK implementation doesn't use the dynamic table yet.
-				return
-			case streamTypePushStream:
+			c.CloseWithError(quic.ApplicationErrorCode(ErrCodeStreamCreationError), "duplicate QPACK decoder stream")
+		}
+		// Our QPACK implementation doesn't use the dynamic table yet.
+		return
+	case streamTypePushStream:
 		if isServer {
-					// only the server can push
-					c.CloseWithError(quic.ApplicationErrorCode(ErrCodeStreamCreationError), "")
-				} else {
-					// we never increased the Push ID, so we don't expect any push streams
-					c.CloseWithError(quic.ApplicationErrorCode(ErrCodeIDError), "")
-				}
-				return
-			default:
-				str.CancelRead(quic.StreamErrorCode(ErrCodeStreamCreationError))
-				return
-			}
-			// Only a single control stream is allowed.
+			// only the server can push
+			c.CloseWithError(quic.ApplicationErrorCode(ErrCodeStreamCreationError), "")
+		} else {
+			// we never increased the Push ID, so we don't expect any push streams
+			c.CloseWithError(quic.ApplicationErrorCode(ErrCodeIDError), "")
+		}
+		return
+	default:
+		str.CancelRead(quic.StreamErrorCode(ErrCodeStreamCreationError))
+		return
+	}
+	// Only a single control stream is allowed.
 	if isFirstControlStr := c.rcvdControlStr.CompareAndSwap(false, true); !isFirstControlStr {
-				c.conn.CloseWithError(quic.ApplicationErrorCode(ErrCodeStreamCreationError), "duplicate control stream")
-				return
-			}
-			c.handleControlStream(str)
+		c.conn.CloseWithError(quic.ApplicationErrorCode(ErrCodeStreamCreationError), "duplicate control stream")
+		return
+	}
+	c.handleControlStream(str)
 }
 
 func (c *rawConn) handleControlStream(str *quic.ReceiveStream) {

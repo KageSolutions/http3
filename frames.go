@@ -56,7 +56,7 @@ func (p *frameParser) ParseNext(qlogger qlogwriter.Recorder) (frame, error) {
 	for {
 		t, err := quicvarint.Read(r)
 		if err != nil {
-				return nil, err
+			return nil, err
 		}
 		l, err := quicvarint.Read(r)
 		if err != nil {
@@ -178,7 +178,12 @@ func pointer[T any](v T) *T {
 	return &v
 }
 
-func parseSettingsFrame(r *countingByteReader, l uint64, streamID quic.StreamID, qlogger qlogwriter.Recorder) (*settingsFrame, error) {
+func parseSettingsFrame(
+	r *countingByteReader,
+	l uint64,
+	streamID quic.StreamID,
+	qlogger qlogwriter.Recorder,
+) (*settingsFrame, error) {
 	if l > 8*(1<<10) {
 		return nil, fmt.Errorf("unexpected size for SETTINGS frame: %d", l)
 	}
@@ -246,7 +251,7 @@ func parseSettingsFrame(r *countingByteReader, l uint64, streamID quic.StreamID,
 		}
 	}
 	if qlogger != nil {
-		settingsFrame.Other = frame.Other.Map()
+		settingsFrame.Other = frame.Other.Iter().Collect().Map[uint64, uint64]()
 
 		qlogger.RecordEvent(qlog.FrameParsed{
 			StreamID: streamID,
@@ -301,7 +306,12 @@ type goAwayFrame struct {
 	StreamID quic.StreamID
 }
 
-func parseGoAwayFrame(r *countingByteReader, l uint64, streamID quic.StreamID, qlogger qlogwriter.Recorder) (*goAwayFrame, error) {
+func parseGoAwayFrame(
+	r *countingByteReader,
+	l uint64,
+	streamID quic.StreamID,
+	qlogger qlogwriter.Recorder,
+) (*goAwayFrame, error) {
 	frame := &goAwayFrame{}
 	startLen := r.NumRead
 	id, err := quicvarint.Read(r)
