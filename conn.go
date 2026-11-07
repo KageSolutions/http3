@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/enetx/http3/qlog"
+	"github.com/quic-go/qpack"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/qlogwriter"
 	"github.com/quic-go/quic-go/quicvarint"
@@ -46,6 +47,10 @@ type rawConn struct {
 
 	qlogger   qlogwriter.Recorder
 	qloggerWG sync.WaitGroup // tracks goroutines that may produce qlog events
+
+	// qpackDecoder is set by the client/server to enable dynamic table processing
+	// on the QPACK encoder stream. When nil, encoder stream data is discarded.
+	qpackDecoder *qpack.Decoder
 }
 
 func newRawConn(
@@ -172,7 +177,14 @@ func (c *rawConn) handleUnidirectionalStream(str *quic.ReceiveStream, isServer b
 		if isFirst := c.rcvdQPACKEncoderStr.CompareAndSwap(false, true); !isFirst {
 			c.CloseWithError(quic.ApplicationErrorCode(ErrCodeStreamCreationError), "duplicate QPACK encoder stream")
 		}
-		// Our QPACK implementation doesn't use the dynamic table yet.
+		// Process the encoder stream to populate the dynamic table.
+		if c.qpackDecoder != nil {
+			go func() {
+				if err := c.qpackDecoder.ProcessEncoderStream(str); err != nil {
+					c.logger.Debug("QPACK encoder stream error", "error", err)
+				}
+			}()
+		}
 		return
 	case streamTypeQPACKDecoderStream:
 		if isFirst := c.rcvdQPACKDecoderStr.CompareAndSwap(false, true); !isFirst {

@@ -119,6 +119,7 @@ func newClientConn(
 		qlogger,
 		c.logger,
 	)
+	c.rawConn.qpackDecoder = c.decoder
 	// send the SETTINGs frame, using 0-RTT data, if possible
 	go func() {
 		_, err := c.rawConn.openControlStream(&settingsFrame{
