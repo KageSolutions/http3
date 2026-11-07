@@ -181,7 +181,9 @@ func (c *rawConn) handleUnidirectionalStream(str *quic.ReceiveStream, isServer b
 		if c.qpackDecoder != nil {
 			go func() {
 				if err := c.qpackDecoder.ProcessEncoderStream(str); err != nil {
-					c.logger.Debug("QPACK encoder stream error", "error", err)
+					if c.logger != nil {
+						c.logger.Debug("QPACK encoder stream error", "error", err)
+					}
 				}
 			}()
 		}
